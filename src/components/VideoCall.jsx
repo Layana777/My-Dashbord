@@ -71,12 +71,15 @@ const VideoCall = ({
 
   const initializeCall = async () => {
     try {
+      console.log("Initializing call with:", { callId, isVideoCall, username });
+      
       // Get user media
       const stream = await navigator.mediaDevices.getUserMedia({
         video: isVideoCall,
         audio: true,
       });
 
+      console.log("Got user media stream:", stream);
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
@@ -88,20 +91,23 @@ const VideoCall = ({
 
       // Add local stream to peer connection
       stream.getTracks().forEach((track) => {
+        console.log("Adding track to peer connection:", track);
         peerConnection.addTrack(track, stream);
       });
 
       // Handle remote stream
       peerConnection.ontrack = (event) => {
-        console.log("Received remote stream");
+        console.log("Received remote stream:", event.streams[0]);
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = event.streams[0];
         }
+        setConnectionStatus("connected");
       };
 
       // Handle ICE candidates
       peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
+          console.log("Sending ICE candidate:", event.candidate);
           socket.emit("webrtc_ice_candidate", {
             callId,
             candidate: event.candidate,
@@ -113,16 +119,19 @@ const VideoCall = ({
       peerConnection.onconnectionstatechange = () => {
         const state = peerConnection.connectionState;
         setConnectionStatus(state);
-        console.log("Connection state:", state);
+        console.log("Connection state changed:", state);
       };
 
       // Create and send offer (caller initiates)
+      console.log("Creating offer...");
       const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
+      console.log("Sending offer:", offer);
       socket.emit("webrtc_offer", { callId, offer });
     } catch (error) {
       console.error("Error initializing call:", error);
       setConnectionStatus("failed");
+      alert("Failed to initialize call. Please check your camera and microphone permissions.");
     }
   };
 

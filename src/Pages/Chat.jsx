@@ -75,7 +75,8 @@ const Chat = () => {
 
   useEffect(() => {
     if (!socketRef.current) {
-      socketRef.current = io("http://192.168.7.149:4000");
+      const serverUrl = "http://localhost:4000";
+      socketRef.current = io(serverUrl);
     }
     const socket = socketRef.current;
 
@@ -228,6 +229,19 @@ const Chat = () => {
   // Video Call Functions
   const initiateCall = (targetUsername, callType) => {
     console.log(`Initiating ${callType} call to ${targetUsername}`);
+
+    // Check if user is trying to call themselves
+    if (targetUsername === username) {
+      alert("You cannot call yourself!");
+      return;
+    }
+
+    // Check if target user is online
+    if (!users.includes(targetUsername)) {
+      alert("User is not online or not found!");
+      return;
+    }
+
     setRemoteUsername(targetUsername);
     setIsVideoCall(callType === "video");
     socketRef.current.emit("initiate_call", {
@@ -599,10 +613,38 @@ const Chat = () => {
                 <button className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-all duration-200">
                   <Search className="w-5 h-5 text-white" />
                 </button>
-                <button className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-all duration-200">
+                <button
+                  onClick={() => {
+                    // Start group audio call with all users
+                    if (users.length > 1) {
+                      const otherUsers = users.filter(
+                        (user) => user !== username
+                      );
+                      if (otherUsers.length > 0) {
+                        initiateCall(otherUsers[0], "audio");
+                      }
+                    }
+                  }}
+                  className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-all duration-200"
+                  title="Start Audio Call"
+                >
                   <Phone className="w-5 h-5 text-white" />
                 </button>
-                <button className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-all duration-200">
+                <button
+                  onClick={() => {
+                    // Start group video call with all users
+                    if (users.length > 1) {
+                      const otherUsers = users.filter(
+                        (user) => user !== username
+                      );
+                      if (otherUsers.length > 0) {
+                        initiateCall(otherUsers[0], "video");
+                      }
+                    }
+                  }}
+                  className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-all duration-200"
+                  title="Start Video Call"
+                >
                   <Video className="w-5 h-5 text-white" />
                 </button>
                 <button className="w-10 h-10 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-all duration-200">
