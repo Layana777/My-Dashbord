@@ -2,21 +2,67 @@ const express = require("express");
 const http = require("http");
 const socketIo = require("socket.io");
 const cors = require("cors");
+const os = require("os");
 
 // Create Express app
 const app = express();
 const server = http.createServer(app);
 
-// Configure Socket.IO with CORS
+// Function to get local IP address
+function getLocalIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const interface of interfaces[name]) {
+      if (interface.family === "IPv4" && !interface.internal) {
+        return interface.address;
+      }
+    }
+  }
+  return "localhost";
+}
+
+// Configure Socket.IO with CORS for network access
 const io = socketIo(server, {
   cors: {
-    origin: "http://localhost:5174", // React app URL
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps)
+      if (!origin) return callback(null, true);
+
+      // Allow localhost and local network IPs
+      if (
+        origin.match(
+          /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+):\d+$/
+        )
+      ) {
+        return callback(null, true);
+      }
+
+      // Reject other origins
+      callback(new Error("Not allowed by CORS"));
+    },
     methods: ["GET", "POST"],
   },
 });
 
 // Enable CORS for Express
-app.use(cors());
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+
+      if (
+        origin.match(
+          /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+):\d+$/
+        )
+      ) {
+        return callback(null, true);
+      }
+
+      callback(new Error("Not allowed by CORS"));
+    },
+  })
+);
+
 app.use(express.json());
 
 // Store connected users
@@ -56,6 +102,8 @@ io.on("connection", (socket) => {
       username: username,
       text: data.text,
       timestamp: new Date().toISOString(),
+      imageUrl: data.imageUrl || null,
+      videoUrl: data.videoUrl || null,
       isSystem: false,
     };
 
@@ -97,8 +145,17 @@ io.on("connection", (socket) => {
   });
 });
 
-// Start server
+// Start server on all network interfaces
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+const HOST = process.env.HOST || "0.0.0.0";
+const localIP = getLocalIP();
+
+server.listen(PORT, HOST, () => {
+  console.log("🚀 Server is running on:");
+  console.log(`   Local:    http://localhost:${PORT}`);
+  console.log(`   Network:  http://${localIP}:${PORT}`);
+  console.log("");
+  console.log(
+    "You can now access the server from other devices on your network!"
+  );
 });
