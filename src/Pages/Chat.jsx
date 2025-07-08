@@ -1,3 +1,4 @@
+// Updated Chat.js with Video Call Integration
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import io from "socket.io-client";
 import Webcam from "react-webcam";
@@ -18,10 +19,11 @@ import {
   Download,
   Check,
   Square,
-  Play,
-  Pause,
-  StopCircle,
+  PhoneOff,
 } from "lucide-react";
+
+// Import the new VideoCall component
+import VideoCall from "../components/VideoCall";
 
 const Chat = () => {
   const socketRef = useRef(null);
@@ -39,24 +41,27 @@ const Chat = () => {
 
   // Webcam states
   const [showWebcam, setShowWebcam] = useState(false);
-  const [webcamMode, setWebcamMode] = useState("photo"); // "photo" or "video"
+  const [webcamMode, setWebcamMode] = useState("photo");
   const [capturedImage, setCapturedImage] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordedChunks, setRecordedChunks] = useState([]);
   const [recordedVideo, setRecordedVideo] = useState(null);
-  const [facingMode, setFacingMode] = useState("user"); // "user" or "environment"
+  const [facingMode, setFacingMode] = useState("user");
   const [recordingTime, setRecordingTime] = useState(0);
   const [recordingInterval, setRecordingInterval] = useState(null);
+
+  // Video Call states
+  const [inCall, setInCall] = useState(false);
+  const [callId, setCallId] = useState(null);
+  const [incomingCall, setIncomingCall] = useState(null);
+  const [isVideoCall, setIsVideoCall] = useState(true);
+  const [remoteUsername, setRemoteUsername] = useState("");
 
   // Webcam configuration options
   const videoConstraints = {
     width: 1280,
     height: 720,
     facingMode: facingMode,
-    // Additional constraints you can use:
-    // aspectRatio: 16/9,
-    // frameRate: 30,
-    // deviceId: "specific-device-id" // if you want to select specific camera
   };
 
   // Auto-scroll to bottom of messages
@@ -74,6 +79,7 @@ const Chat = () => {
     }
     const socket = socketRef.current;
 
+    // Chat event listeners
     socket.on("user_joined", (data) => {
       setMessage((prev) => [
         ...prev,
@@ -115,12 +121,59 @@ const Chat = () => {
       setTypingUsername(data.username);
     });
 
+    // Video Call event listeners
+    socket.on("incoming_call", (data) => {
+      console.log("Incoming call from:", data.caller);
+      setIncomingCall(data);
+      setIsVideoCall(data.callType === "video");
+    });
+
+    socket.on("call_initiated", (data) => {
+      console.log("Call initiated:", data);
+      setRemoteUsername(data.targetUser);
+    });
+
+    socket.on("call_accepted", (data) => {
+      console.log("Call accepted:", data);
+      setInCall(true);
+      setCallId(data.callId);
+      setIncomingCall(null);
+    });
+
+    socket.on("call_rejected", (data) => {
+      console.log("Call rejected:", data);
+      setIncomingCall(null);
+      setCallId(null);
+      alert(`Call rejected by ${data.rejectedBy}`);
+    });
+
+    socket.on("call_ended", (data) => {
+      console.log("Call ended:", data);
+      setInCall(false);
+      setCallId(null);
+      setIncomingCall(null);
+      setRemoteUsername("");
+    });
+
+    socket.on("call_error", (data) => {
+      console.error("Call error:", data.message);
+      alert(`Call error: ${data.message}`);
+      setIncomingCall(null);
+      setCallId(null);
+    });
+
     return () => {
       socket.off("user_joined");
       socket.off("users_list");
       socket.off("receive_message");
       socket.off("typing");
       socket.off("user_left");
+      socket.off("incoming_call");
+      socket.off("call_initiated");
+      socket.off("call_accepted");
+      socket.off("call_rejected");
+      socket.off("call_ended");
+      socket.off("call_error");
     };
   }, []);
 
@@ -172,6 +225,46 @@ const Chat = () => {
     }
   };
 
+  // Video Call Functions
+  const initiateCall = (targetUsername, callType) => {
+    console.log(`Initiating ${callType} call to ${targetUsername}`);
+    setRemoteUsername(targetUsername);
+    setIsVideoCall(callType === "video");
+    socketRef.current.emit("initiate_call", {
+      targetUsername,
+      callType,
+    });
+  };
+
+  const acceptCall = () => {
+    if (incomingCall) {
+      console.log("Accepting call:", incomingCall.callId);
+      setRemoteUsername(incomingCall.caller);
+      socketRef.current.emit("call_response", {
+        callId: incomingCall.callId,
+        response: "accept",
+      });
+    }
+  };
+
+  const rejectCall = () => {
+    if (incomingCall) {
+      console.log("Rejecting call:", incomingCall.callId);
+      socketRef.current.emit("call_response", {
+        callId: incomingCall.callId,
+        response: "reject",
+      });
+      setIncomingCall(null);
+    }
+  };
+
+  const endCall = () => {
+    console.log("Ending call");
+    setInCall(false);
+    setCallId(null);
+    setRemoteUsername("");
+  };
+
   // Webcam handlers
   const handleCaptureImage = () => {
     setWebcamMode("photo");
@@ -181,7 +274,6 @@ const Chat = () => {
   };
 
   const handleUploadImage = () => {
-    // Create file input element
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
@@ -190,7 +282,6 @@ const Chat = () => {
       if (file) {
         const reader = new FileReader();
         reader.onload = (event) => {
-          // Add uploaded image to messages
           const message = {
             id: Date.now(),
             username: username,
@@ -274,6 +365,7 @@ const Chat = () => {
         isSystem: false,
         isOwn: true,
       };
+      setMessage((prev) => [...prev, message]);
       socketRef.current.emit("send_message", message);
       closeWebcam();
     }
@@ -291,7 +383,7 @@ const Chat = () => {
         isSystem: false,
         isOwn: true,
       };
-
+      setMessage((prev) => [...prev, message]);
       socketRef.current.emit("send_message", message);
       closeWebcam();
     }
@@ -344,6 +436,20 @@ const Chat = () => {
       username: username,
     });
   };
+
+  // If in a video call, show the VideoCall component
+  if (inCall && callId) {
+    return (
+      <VideoCall
+        callId={callId}
+        socket={socketRef.current}
+        username={username}
+        isVideoCall={isVideoCall}
+        onEndCall={endCall}
+        remoteUsername={remoteUsername}
+      />
+    );
+  }
 
   if (!isJoined) {
     return (
@@ -408,7 +514,7 @@ const Chat = () => {
             {users.map((user, index) => (
               <div
                 key={index}
-                className="flex items-center space-x-3 p-3 bg-white/50 backdrop-blur-sm rounded-xl hover:bg-white/70 transition-all duration-200 cursor-pointer"
+                className="flex items-center space-x-3 p-3 bg-white/50 backdrop-blur-sm rounded-xl hover:bg-white/70 transition-all duration-200 cursor-pointer group"
               >
                 <div className="relative">
                   <div className="w-10 h-10 bg-gradient-to-r from-[#7BBDE8] to-[#49769F] rounded-full flex items-center justify-center">
@@ -422,6 +528,32 @@ const Chat = () => {
                   <p className="text-sm font-medium text-gray-800">{user}</p>
                   <p className="text-xs text-gray-600">Online</p>
                 </div>
+
+                {/* Call buttons - show on hover */}
+                {user !== username && (
+                  <div className="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        initiateCall(user, "audio");
+                      }}
+                      className="w-8 h-8 bg-green-500 hover:bg-green-600 rounded-full flex items-center justify-center transition-all duration-200"
+                      title="Audio Call"
+                    >
+                      <Phone className="w-4 h-4 text-white" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        initiateCall(user, "video");
+                      }}
+                      className="w-8 h-8 bg-blue-500 hover:bg-blue-600 rounded-full flex items-center justify-center transition-all duration-200"
+                      title="Video Call"
+                    >
+                      <Video className="w-4 h-4 text-white" />
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -458,7 +590,9 @@ const Chat = () => {
                   <h3 className="text-white font-semibold text-lg">
                     Team Chat
                   </h3>
-                  <p className="text-white/80 text-sm">5 members online</p>
+                  <p className="text-white/80 text-sm">
+                    {users.length} members online
+                  </p>
                 </div>
               </div>
               <div className="flex items-center space-x-3">
@@ -519,7 +653,7 @@ const Chat = () => {
                             message.isOwn ? "text-white/60" : "text-gray-500"
                           }`}
                         >
-                          {message.timestamp}
+                          {new Date(message.timestamp).toLocaleTimeString()}
                         </span>
                       </div>
                       <p className="text-sm leading-relaxed">{message.text}</p>
@@ -544,7 +678,7 @@ const Chat = () => {
             ))}
 
             {/* Typing Indicator */}
-            {isTyping && typingUsername !== username ? (
+            {isTyping && typingUsername !== username && (
               <div className="flex justify-start">
                 <div className="bg-white/80 px-4 py-3 rounded-2xl rounded-bl-sm backdrop-blur-sm">
                   <div className="flex items-center space-x-2">
@@ -563,10 +697,9 @@ const Chat = () => {
                       {typingUsername} is typing...
                     </span>
                   </div>
-                  <div ref={messagesEndRef} />
                 </div>
               </div>
-            ) : null}
+            )}
 
             <div ref={messagesEndRef} />
           </div>
@@ -632,6 +765,89 @@ const Chat = () => {
           </div>
         </div>
       </div>
+
+      {/* Incoming Call Modal */}
+      {incomingCall && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white/90 backdrop-blur-sm rounded-3xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-[#7BBDE8] to-[#49769F] px-6 py-4 text-center">
+              <h3 className="text-white font-semibold text-lg">
+                Incoming {incomingCall.callType === "video" ? "Video" : "Audio"}{" "}
+                Call
+              </h3>
+            </div>
+
+            {/* Caller Info */}
+            <div className="p-8 text-center">
+              {/* Avatar */}
+              <div className="relative mx-auto mb-6">
+                <div className="w-24 h-24 bg-gradient-to-r from-[#7BBDE8] to-[#49769F] rounded-full flex items-center justify-center mx-auto">
+                  <span className="text-white text-2xl font-bold">
+                    {incomingCall.caller[0].toUpperCase()}
+                  </span>
+                </div>
+
+                {/* Call Type Icon */}
+                <div className="absolute -bottom-2 -right-2 w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-lg border-4 border-white">
+                  {incomingCall.callType === "video" ? (
+                    <Video className="w-6 h-6 text-blue-500" />
+                  ) : (
+                    <Phone className="w-6 h-6 text-green-500" />
+                  )}
+                </div>
+
+                {/* Pulsing Ring Animation */}
+                <div className="absolute inset-0 rounded-full border-4 border-[#7BBDE8] animate-ping opacity-30"></div>
+                <div
+                  className="absolute inset-2 rounded-full border-4 border-[#49769F] animate-ping opacity-40"
+                  style={{ animationDelay: "0.2s" }}
+                ></div>
+              </div>
+
+              {/* Caller Name */}
+              <h4 className="text-2xl font-bold text-gray-800 mb-2">
+                {incomingCall.caller}
+              </h4>
+
+              <p className="text-gray-600 mb-8">
+                {incomingCall.callType === "video"
+                  ? "wants to start a video call"
+                  : "wants to start an audio call"}
+              </p>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-center space-x-8">
+                {/* Reject Button */}
+                <button
+                  onClick={rejectCall}
+                  className="w-16 h-16 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg transform hover:scale-105"
+                >
+                  <PhoneOff className="w-8 h-8 text-white" />
+                </button>
+
+                {/* Accept Button */}
+                <button
+                  onClick={acceptCall}
+                  className="w-16 h-16 bg-green-500 hover:bg-green-600 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg transform hover:scale-105"
+                >
+                  <Phone className="w-8 h-8 text-white" />
+                </button>
+              </div>
+
+              {/* Button Labels */}
+              <div className="flex items-center justify-center space-x-8 mt-3">
+                <span className="text-sm text-gray-500 w-16 text-center">
+                  Decline
+                </span>
+                <span className="text-sm text-gray-500 w-16 text-center">
+                  Accept
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Webcam Modal */}
       {showWebcam && (
